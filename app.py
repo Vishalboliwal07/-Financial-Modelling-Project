@@ -45,7 +45,7 @@ with col_left:
     else: ticker_symbol = st.text_input("Enter Manual Ticker Symbol", value="CUSTOM")
 
 with col_right:
-    strategies = ["Straddle", "Strangle", "Covered Call", "Protective Put", "Bull Spread", "Bear Spread"]
+    strategies = ["Long Straddle", "Short Straddle", "Long Strangle", "Short Strangle", "Covered Call", "Protective Put", "Bull Spread", "Bear Spread"] #added long and short
     strategy = st.selectbox("Strategy", strategies)
 
 st.markdown("---")
@@ -71,7 +71,7 @@ if not use_manual:
 
     strikes = sorted(calls['strike'].values)
     k1 = st.selectbox("Strike K1", strikes, index=list(strikes).index(min(strikes, key=lambda x: abs(x - current_price))))
-    need_k2 = strategy in ["Strangle", "Bull Spread", "Bear Spread"]
+    need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"] #long and short 
     k2 = st.selectbox("Strike K2", strikes, index=min(len(strikes)-1, list(strikes).index(k1)+1)) if need_k2 else None
     cp1, pp1 = get_mid(calls, k1), get_mid(puts, k1)
     cp2, pp2 = (get_mid(calls, k2), get_mid(puts, k2)) if need_k2 else (0.0, 0.0)
@@ -103,13 +103,20 @@ def c_pay(S, K): return np.maximum(S - K, 0)
 def p_pay(S, K): return np.maximum(K - S, 0)
 
 S_temp = np.linspace(current_price * (1-zoom_pct), current_price * (1+zoom_pct), 1000)
-
-if strategy == "Straddle":
+#long and short
+if strategy == "Long Straddle":   
     p_temp = (c_pay(S_temp, k1) + p_pay(S_temp, k1)) - (cp1 + pp1)
     net_premium, is_debit = (cp1 + pp1), True
-elif strategy == "Strangle":
+elif strategy == "Short Straddle":
+    p_temp = (cp1 + pp1) - (c_pay(S_temp, k1) + p_pay(S_temp, k1))
+    net_premium, is_debit = (cp1 + pp1), False
+elif strategy == "Long Strangle":
     p_temp = (p_pay(S_temp, k1) + c_pay(S_temp, k2)) - (pp1 + cp2)
     net_premium, is_debit = (pp1 + cp2), True
+elif strategy == "Short Strangle":
+    p_temp = (pp1 + cp2) - (p_pay(S_temp, k1) + c_pay(S_temp, k2))
+    net_premium, is_debit = (pp1 + cp2), False
+    #end
 elif strategy == "Covered Call":
     p_temp = (S_temp - current_price) - c_pay(S_temp, k1) + cp1
     net_premium, is_debit = cp1, False
@@ -132,13 +139,20 @@ for i in range(len(S_temp)-1):
 
 # Final array for plotting
 S = np.sort(np.unique(np.concatenate([S_temp, bes, [k1], [k2] if k2 else []])))
-
-if strategy == "Straddle":
+# long and short
+if strategy == "Long Straddle":
     gross = c_pay(S, k1) + p_pay(S, k1)
     profit = gross - net_premium
-elif strategy == "Strangle":
+elif strategy == "Short Straddle":
+    gross = -(c_pay(S, k1) + p_pay(S, k1))
+    profit = gross + net_premium
+elif strategy == "Long Strangle":
     gross = p_pay(S, k1) + c_pay(S, k2)
     profit = gross - net_premium
+elif strategy == "Short Strangle":
+    gross = -(p_pay(S, k1) + c_pay(S, k2))
+    profit = gross + net_premium
+    #end
 elif strategy == "Covered Call":
     gross = (S - current_price) - c_pay(S, k1)
     profit = gross + cp1
@@ -158,12 +172,12 @@ met_col1, met_col2, met_col3, met_col4 = st.columns(4) # Added a 4th column
 
 with met_col1:
     st.markdown('<p class="metric-label">Max Profit</p>', unsafe_allow_html=True)
-    val = "Undefined" if strategy in ["Straddle", "Strangle", "Protective Put"] else f"${np.max(profit):.2f}"
+    val = "Undefined" if strategy in ["Long Straddle", "Long Strangle", "Protective Put"] else f"${np.max(profit):.2f}" #long and short
     st.markdown(f'<p class="metric-value">{val}</p>', unsafe_allow_html=True)
 
 with met_col2:
     st.markdown('<p class="metric-label">Max Loss (Risk)</p>', unsafe_allow_html=True)
-    val = "Undefined" if strategy == "Covered Call" else f"${np.min(profit):.2f}"
+    val = "Undefined" if strategy in ["Short Straddle", "Short Strangle", "Covered Call"] else f"${np.min(profit):.2f}" #long and short
     st.markdown(f'<p class="metric-value">{val}</p>', unsafe_allow_html=True)
 
 with met_col3:
@@ -211,3 +225,4 @@ def create_fig(x, y, title, label_name):
 
 st.plotly_chart(create_fig(S, gross, "1. Payoff Diagram (Gross Value)", "Payoff"), use_container_width=True)
 st.plotly_chart(create_fig(S, profit, "2. Profit Diagram (Net Realized)", "Profit"), use_container_width=True)
+
