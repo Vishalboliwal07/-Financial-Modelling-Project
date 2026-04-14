@@ -98,6 +98,27 @@ if need_k2:
     p_col3.metric(f"Call Leg (K2: {k2})", f"${cp2:.2f}")
     p_col4.metric(f"Put Leg (K2: {k2})", f"${pp2:.2f}")
 
+# ================= SPOT PRICE SIMULATOR =================
+st.markdown("---")
+
+
+
+sim_col1, sim_col2 = st.columns([1, 2])
+
+with sim_col1:
+    # Toggle button for Normal vs Percentage
+    shift_mode = st.radio("Adjustment Mode", ["Normal ($)", "Percentage (%)"], horizontal=True)
+
+with sim_col2:
+    # Scroll bar (Slider) logic to adjust the Spot Price
+    if shift_mode == "Normal ($)":
+        shift_val = st.slider("Spot Price ($)", min_value=-100.0, max_value=100.0, value=0.0, step=1.0)
+        current_price = current_price + shift_val
+    else:
+        shift_val = st.slider("Spot Price (%)", min_value=-20.0, max_value=20.0, value=0.0, step=0.5)
+        current_price = current_price * (1 + (shift_val / 100))
+
+
 # ================= MATH ENGINE (With Breakeven Injection) =================
 def c_pay(S, K): return np.maximum(S - K, 0)
 def p_pay(S, K): return np.maximum(K - S, 0)
@@ -220,7 +241,7 @@ with met_col5:
 def create_fig(x, y, title, label_name):
     fig = go.Figure()
     
-    # Fill Logic (Perfected with injected zeros)
+    # Fill Logic (Green for Profit, Red for Loss)
     fig.add_trace(go.Scatter(x=x, y=np.where(y>=0, y, 0), fill='tozeroy', fillcolor='rgba(72, 187, 120, 0.3)', line=dict(width=0), showlegend=False))
     fig.add_trace(go.Scatter(x=x, y=np.where(y<0, y, 0), fill='tozeroy', fillcolor='rgba(245, 101, 101, 0.3)', line=dict(width=0), showlegend=False))
     
@@ -238,11 +259,39 @@ def create_fig(x, y, title, label_name):
         for be in bes:
             fig.add_vline(x=be, line_dash="dot", line_color="#9f7aea")
 
-    fig.add_hline(y=0, line_color="white", opacity=0.3)
+    # Explicitly enhance the Zero Line separating Profit and Loss
+    fig.add_hline(y=0, line_color="white", line_width=2, opacity=0.8)
     
+    # --- SMART SCALING Y-AXIS ---
+    # Find the actual highest and lowest points of the data
+    actual_max = np.max(y)
+    actual_min = np.min(y)
+    
+    # Calculate the total height of the graph for dynamic padding
+    y_range = actual_max - actual_min
+    if y_range == 0: y_range = 10 # Fallback
+    
+    # Add a 15% visual cushion above and below the data
+    y_max = actual_max + (y_range * 0.15)
+    y_min = actual_min - (y_range * 0.15)
+    
+    # Guarantee the zero line is always clearly visible, even if the trade is 100% profit or 100% loss
+    if y_min >= 0: y_min = -y_max * 0.15
+    if y_max <= 0: y_max = -y_min * 0.15
+
     fig.update_layout(
-        title=f"<b>{title}</b>", template="plotly_dark", hovermode="x unified", height=500,
-        xaxis_title="Stock Price at Expiry ($)", yaxis_title="Value / Profit ($)",
+        title=f"<b>{title}</b>", 
+        template="plotly_dark", 
+        hovermode="x unified", 
+        height=500,
+        xaxis_title="Stock Price at Expiry ($)", 
+        yaxis_title="Profit / Loss ($)" if "Profit" in title else "Value ($)",
+        yaxis=dict(
+            zeroline=True, 
+            zerolinewidth=2, 
+            zerolinecolor='rgba(255,255,255,0.5)', 
+            range=[y_min, y_max] # Apply the smart dynamic range
+        ),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     return fig
