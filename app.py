@@ -168,7 +168,16 @@ elif strategy == "Bear Spread":
 
 # ================= UI METRICS =================
 st.markdown("## Metrics")
-met_col1, met_col2, met_col3, met_col4 = st.columns(4) # Added a 4th column
+met_col1, met_col2, met_col3, met_col4, met_col5 = st.columns(5) # Added a 5th column
+#rr
+# Numeric references for the math
+max_p = np.max(profit)
+max_l = np.min(profit)
+
+# Define which strategies have capped risk/reward
+profit_defined = strategy not in ["Long Straddle", "Long Strangle", "Protective Put"]
+risk_defined = strategy not in ["Short Straddle", "Short Strangle", "Covered Call"]
+#rr
 
 with met_col1:
     st.markdown('<p class="metric-label">Max Profit</p>', unsafe_allow_html=True)
@@ -191,6 +200,21 @@ with met_col4:
     badge_text = "Debit" if is_debit else "Credit"
     badge_class = "badge-debit" if is_debit else "badge-credit"
     st.markdown(f'<span class="{badge_class}">↑ {badge_text}</span>', unsafe_allow_html=True)
+
+#rr
+with met_col5:
+    st.markdown('<p class="metric-label">Risk : Reward</p>', unsafe_allow_html=True)
+    if profit_defined and risk_defined:
+        if max_l == 0:
+            rr_val = "Risk-Free"
+        else:
+            # Calculates how much you make for every $1 risked
+            ratio = max_p / abs(max_l)
+            rr_val = f"1 : {ratio:.2f}"
+    else:
+        rr_val = "Undefined"
+    st.markdown(f'<p class="metric-value">{rr_val}</p>', unsafe_allow_html=True)
+#rr
 
 # ================= PLOTLY GRAPHS (VERTICAL) =================
 def create_fig(x, y, title, label_name):
