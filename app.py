@@ -16,24 +16,41 @@ st.markdown("""
         font-weight: bold;
         margin-bottom: 20px;
     }
-    .metric-label { font-size: 14px; color: #cbd5e0; margin-bottom: 0px; }
-    .metric-value { font-size: 32px; font-weight: bold; color: white; margin-top: 0px; }
-    .badge-debit { background-color: #1c4532; color: #48bb78; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: bold; }
-    .badge-credit { background-color: #4a1212; color: #f56565; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: bold; }
+    
+    /* Removed hardcoded colors. Opacity creates the faded look in both Light and Dark themes */
+    .metric-label { font-size: 14px; opacity: 0.7; margin-bottom: 0px; }
+    .metric-value { font-size: 32px; font-weight: bold; margin-top: 0px; }
+    
+    /* Adjusted badge colors to use RGBA so they look good on both white and black backgrounds */
+    .badge-debit { background-color: rgba(72, 187, 120, 0.2); color: #2f855a; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: bold; }
+    .badge-credit { background-color: rgba(245, 101, 101, 0.2); color: #c53030; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
+
 
 # ================= SIDEBAR =================
 st.sidebar.header("⚙️ Dashboard Controls")
 use_manual = st.sidebar.checkbox("🛠️ Manual Data Entry Mode", value=False)
+currency_mode = st.sidebar.radio("💵 Currency Display", ["USD ($)", "INR (₹)"]) # NEW TOGGLE
 zoom_pct = st.sidebar.slider("🔍 Chart Zoom Range (+/- %)", 10, 150, 50) / 100
 
 STOCK_DATABASE = {
+    # US Big Tech
     "Apple": "AAPL", "Microsoft": "MSFT", "Google": "GOOGL", "Amazon": "AMZN",
-    "Nvidia": "NVDA", "Tesla": "TSLA", "Reliance": "RELIANCE.NS", "Nifty 50": "^NSEI",
-    "Bank Nifty": "^NSEBANK", "HDFC Bank": "HDFCBANK.NS", "Infosys": "INFY.NS"
-}
+    "Nvidia": "NVDA", "Tesla": "TSLA", "Meta": "META", "Netflix": "NFLX",
+    
+    # Semiconductor & IC Design
+    "TSMC": "TSM", "AMD": "AMD", "Intel": "INTC", "ASML": "ASML",
+    "Broadcom": "AVGO", "Qualcomm": "QCOM", "Texas Instruments": "TXN",
 
+    # Indian Indices (F&O Favourites)
+    "Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK", "India VIX": "^INDIAVIX",
+
+    # Indian Heavyweights (NSE)
+    "Reliance": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", "Infosys": "INFY.NS",
+    "ICICI Bank": "ICICIBANK.NS", "TCS": "TCS.NS", "Tata Motors": "TATAMOTORS.NS",
+    "State Bank of India": "SBIN.NS", "ITC": "ITC.NS", "L&T": "LT.NS"
+}
 # ================= TOP SELECTION =================
 col_left, col_right = st.columns(2)
 with col_left:
@@ -51,15 +68,45 @@ with col_right:
 st.markdown("---")
 
 # ================= DATA FETCHING =================
+st.markdown("---")
+
+# ================= REAL-TIME CURRENCY CONVERSION =================
+@st.cache_data(ttl=3600) # Caches the exchange rate for 1 hour to prevent API bans
+def get_exchange_rate():
+    try:
+        return yf.Ticker("USDINR=X").history(period="1d")["Close"].iloc[-1]
+    except:
+        return 83.50 # Fallback rate just in case Yahoo Finance is down
+
+live_usd_inr = get_exchange_rate()
+
+# Smart detection: Is the stock already in INR?
+is_indian = ticker_symbol.endswith(".NS") or ticker_symbol.endswith(".BO") or ticker_symbol.startswith("^NSE")
+
+if currency_mode == "USD ($)":
+    currency_sym = "$"
+    multiplier = 1.0 if not is_indian else (1.0 / live_usd_inr)
+else:
+    currency_sym = "₹"
+    multiplier = live_usd_inr if not is_indian else 1.0
+
+# ================= DATA FETCHING =================
 if not use_manual:
     ticker_obj = yf.Ticker(ticker_symbol)
     with st.spinner("Fetching Market Data..."):
         hist = ticker_obj.history(period="1d")
         if hist.empty: st.stop()
-        current_price = hist["Close"].iloc[-1]
-        st.markdown(f'<div class="price-bar">Live Price for {ticker_symbol}: ${current_price:.2f}</div>', unsafe_allow_html=True)
+        
+        # Multiply the fetched price immediately!
+        current_price = hist["Close"].iloc[-1] * multiplier 
+        
+        st.markdown(f'<div class="price-bar">Live Price for {ticker_symbol}: {currency_sym}{current_price:.2f}</div>', unsafe_allow_html=True)
+        
         expiries = ticker_obj.options
-        if not expiries: st.stop()
+        if not expiries:
+            st.warning(f"⚠️ **Options Chain Unavailable**")
+            st.info(f"Yahoo Finance does not provide free options data for {ticker_symbol}. To analyze strategies for this stock, please check the **'🛠️ Manual Data Entry Mode'** box in the sidebar and enter the premiums manually.")
+            st.stop()
         expiry = st.selectbox("Select Expiry", expiries)
         chain = ticker_obj.option_chain(expiry)
         calls, puts = chain.calls, chain.puts
@@ -70,19 +117,35 @@ if not use_manual:
         return (row['bid'].values[0] + row['ask'].values[0]) / 2 or row['lastPrice'].values[0]
 
     strikes = sorted(calls['strike'].values)
-    k1 = st.selectbox("Strike K1", strikes, index=list(strikes).index(min(strikes, key=lambda x: abs(x - current_price))))
-    need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"] #long and short 
+    
+    # We multiply the baseline for k1 calculation so it matches current_price
+    baseline_k = current_price / multiplier 
+    k1 = st.selectbox("Strike K1", strikes, index=list(strikes).index(min(strikes, key=lambda x: abs(x - baseline_k))))
+    
+    need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"] 
     k2 = st.selectbox("Strike K2", strikes, index=min(len(strikes)-1, list(strikes).index(k1)+1)) if need_k2 else None
+    
     cp1, pp1 = get_mid(calls, k1), get_mid(puts, k1)
     cp2, pp2 = (get_mid(calls, k2), get_mid(puts, k2)) if need_k2 else (0.0, 0.0)
+
+    # Apply the multiplier to all selected strikes and premiums
+    k1 *= multiplier
+    cp1 *= multiplier
+    pp1 *= multiplier
+    if need_k2:
+        k2 *= multiplier
+        cp2 *= multiplier
+        pp2 *= multiplier
+
 else:
     st.markdown(f'<div class="price-bar">🛠️ Manual Entry Mode Active</div>', unsafe_allow_html=True)
     m_col1, m_col2 = st.columns(2)
+    # Manual mode inputs
     current_price = m_col1.number_input("Spot Price", value=100.0)
     k1 = m_col1.number_input("Strike K1", value=100.0)
     cp1 = m_col2.number_input("Call Premium K1", value=5.0)
     pp1 = m_col1.number_input("Put Premium K1", value=5.0)
-    need_k2 = strategy in ["Strangle", "Bull Spread", "Bear Spread"]
+    need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"]
     if need_k2:
         k2 = m_col2.number_input("Strike K2", value=110.0)
         cp2 = m_col2.number_input("Call Premium K2", value=2.0)
@@ -92,25 +155,52 @@ else:
 # ================= PREMIUM DETAILS SECTION =================
 st.markdown("### Premium Details")
 p_col1, p_col2, p_col3, p_col4 = st.columns(4)
-p_col1.metric(f"Call Leg (K1: {k1})", f"${cp1:.2f}")
-p_col2.metric(f"Put Leg (K1: {k1})", f"${pp1:.2f}")
+p_col1.metric(f"Call Leg (K1: {k1:.1f})", f"{currency_sym}{cp1:.2f}")
+p_col2.metric(f"Put Leg (K1: {k1:.1f})", f"{currency_sym}{pp1:.2f}")
 if need_k2:
-    p_col3.metric(f"Call Leg (K2: {k2})", f"${cp2:.2f}")
-    p_col4.metric(f"Put Leg (K2: {k2})", f"${pp2:.2f}")
+    p_col3.metric(f"Call Leg (K2: {k2:.1f})", f"{currency_sym}{cp2:.2f}")
+    p_col4.metric(f"Put Leg (K2: {k2:.1f})", f"{currency_sym}{pp2:.2f}")
 
+main_layout = st.container()
+
+# ================= REAL-TIME CURRENCY CONVERSION =================
+@st.cache_data(ttl=3600) # Caches the exchange rate for 1 hour to prevent API bans
+def get_exchange_rate():
+    try:
+        return yf.Ticker("USDINR=X").history(period="1d")["Close"].iloc[-1]
+    except:
+        return 83.50 # Fallback rate just in case Yahoo Finance is down
+
+live_usd_inr = get_exchange_rate()
+
+# Smart detection: Is the stock already in INR?
+is_indian = ticker_symbol.endswith(".NS") or ticker_symbol.endswith(".BO") or ticker_symbol.startswith("^NSE")
+
+if currency_mode == "USD ($)":
+    currency_sym = "$"
+    multiplier = 1.0 if not is_indian else (1.0 / live_usd_inr)
+else:
+    currency_sym = "₹"
+    multiplier = live_usd_inr if not is_indian else 1.0
+
+# Apply the conversion to all base variables BEFORE the math engine!
+current_price *= multiplier
+k1 *= multiplier
+cp1 *= multiplier
+pp1 *= multiplier
+if need_k2:
+    k2 *= multiplier
+    cp2 *= multiplier
+    pp2 *= multiplier
+    
 # ================= SPOT PRICE SIMULATOR =================
-st.markdown("---")
-
-
 
 sim_col1, sim_col2 = st.columns([1, 2])
 
 with sim_col1:
-    # Toggle button for Normal vs Percentage
     shift_mode = st.radio("Adjustment Mode", ["Normal ($)", "Percentage (%)"], horizontal=True)
 
 with sim_col2:
-    # Scroll bar (Slider) logic to adjust the Spot Price
     if shift_mode == "Normal ($)":
         shift_val = st.slider("Spot Price ($)", min_value=-100.0, max_value=100.0, value=0.0, step=1.0)
         current_price = current_price + shift_val
@@ -118,13 +208,12 @@ with sim_col2:
         shift_val = st.slider("Spot Price (%)", min_value=-20.0, max_value=20.0, value=0.0, step=0.5)
         current_price = current_price * (1 + (shift_val / 100))
 
-
 # ================= MATH ENGINE (With Breakeven Injection) =================
 def c_pay(S, K): return np.maximum(S - K, 0)
 def p_pay(S, K): return np.maximum(K - S, 0)
 
 S_temp = np.linspace(current_price * (1-zoom_pct), current_price * (1+zoom_pct), 1000)
-#long and short
+
 if strategy == "Long Straddle":   
     p_temp = (c_pay(S_temp, k1) + p_pay(S_temp, k1)) - (cp1 + pp1)
     net_premium, is_debit = (cp1 + pp1), True
@@ -137,7 +226,6 @@ elif strategy == "Long Strangle":
 elif strategy == "Short Strangle":
     p_temp = (pp1 + cp2) - (p_pay(S_temp, k1) + c_pay(S_temp, k2))
     net_premium, is_debit = (pp1 + cp2), False
-    #end
 elif strategy == "Covered Call":
     p_temp = (S_temp - current_price) - c_pay(S_temp, k1) + cp1
     net_premium, is_debit = cp1, False
@@ -160,7 +248,7 @@ for i in range(len(S_temp)-1):
 
 # Final array for plotting
 S = np.sort(np.unique(np.concatenate([S_temp, bes, [k1], [k2] if k2 else []])))
-# long and short
+
 if strategy == "Long Straddle":
     gross = c_pay(S, k1) + p_pay(S, k1)
     profit = gross - net_premium
@@ -173,7 +261,6 @@ elif strategy == "Long Strangle":
 elif strategy == "Short Strangle":
     gross = -(p_pay(S, k1) + c_pay(S, k2))
     profit = gross + net_premium
-    #end
 elif strategy == "Covered Call":
     gross = (S - current_price) - c_pay(S, k1)
     profit = gross + cp1
@@ -187,115 +274,100 @@ elif strategy == "Bear Spread":
     gross = p_pay(S, k2) - p_pay(S, k1)
     profit = gross - net_premium
 
-# ================= UI METRICS =================
-st.markdown("## Metrics")
-met_col1, met_col2, met_col3, met_col4, met_col5 = st.columns(5) # Added a 5th column
-#rr
-# Numeric references for the math
-max_p = np.max(profit)
-max_l = np.min(profit)
-
-# Define which strategies have capped risk/reward
-profit_defined = strategy not in ["Long Straddle", "Long Strangle", "Protective Put"]
-risk_defined = strategy not in ["Short Straddle", "Short Strangle", "Covered Call"]
-#rr
-
-with met_col1:
-    st.markdown('<p class="metric-label">Max Profit</p>', unsafe_allow_html=True)
-    val = "Undefined" if strategy in ["Long Straddle", "Long Strangle", "Protective Put"] else f"${np.max(profit):.2f}" #long and short
-    st.markdown(f'<p class="metric-value">{val}</p>', unsafe_allow_html=True)
-
-with met_col2:
-    st.markdown('<p class="metric-label">Max Loss (Risk)</p>', unsafe_allow_html=True)
-    val = "Undefined" if strategy in ["Short Straddle", "Short Strangle", "Covered Call"] else f"${np.min(profit):.2f}" #long and short
-    st.markdown(f'<p class="metric-value">{val}</p>', unsafe_allow_html=True)
-
-with met_col3:
-    st.markdown('<p class="metric-label">Breakeven(s)</p>', unsafe_allow_html=True)
-    be_val = ", ".join([f"${b}" for b in bes]) if bes else "None"
-    st.markdown(f'<p class="metric-value" style="font-size:24px;">{be_val}</p>', unsafe_allow_html=True)
-
-with met_col4:
-    st.markdown('<p class="metric-label">Net Premium</p>', unsafe_allow_html=True)
-    st.markdown(f'<p class="metric-value">${abs(net_premium):.2f}</p>', unsafe_allow_html=True)
-    badge_text = "Debit" if is_debit else "Credit"
-    badge_class = "badge-debit" if is_debit else "badge-credit"
-    st.markdown(f'<span class="{badge_class}">↑ {badge_text}</span>', unsafe_allow_html=True)
-
-#rr
-with met_col5:
-    st.markdown('<p class="metric-label">Risk : Reward</p>', unsafe_allow_html=True)
-    if profit_defined and risk_defined:
-        if max_l == 0:
-            rr_val = "Risk-Free"
-        else:
-            # Calculates how much you make for every $1 risked
-            ratio = max_p / abs(max_l)
-            rr_val = f"1 : {ratio:.2f}"
-    else:
-        rr_val = "Undefined"
-    st.markdown(f'<p class="metric-value">{rr_val}</p>', unsafe_allow_html=True)
-#rr
-
-# ================= PLOTLY GRAPHS (VERTICAL) =================
+# ================= PLOTLY GRAPHS LOGIC =================
 def create_fig(x, y, title, label_name):
     fig = go.Figure()
-    
-    # Fill Logic (Green for Profit, Red for Loss)
     fig.add_trace(go.Scatter(x=x, y=np.where(y>=0, y, 0), fill='tozeroy', fillcolor='rgba(72, 187, 120, 0.3)', line=dict(width=0), showlegend=False))
     fig.add_trace(go.Scatter(x=x, y=np.where(y<0, y, 0), fill='tozeroy', fillcolor='rgba(245, 101, 101, 0.3)', line=dict(width=0), showlegend=False))
-    
-    # Main Line
     fig.add_trace(go.Scatter(x=x, y=y, name=label_name, line=dict(color='#63b3ed', width=3)))
-    
-    # Legend Dummies (Lines for legend only)
     fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', line=dict(color='orange', dash='dash'), name='Spot Price'))
+    
     if "Profit" in title and bes:
         fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', line=dict(color='#9f7aea', dash='dot'), name='Breakeven'))
 
-    # Draw vertical reference lines
     fig.add_vline(x=current_price, line_dash="dash", line_color="orange")
     if "Profit" in title:
         for be in bes:
             fig.add_vline(x=be, line_dash="dot", line_color="#9f7aea")
 
-    # Explicitly enhance the Zero Line separating Profit and Loss
     fig.add_hline(y=0, line_color="white", line_width=2, opacity=0.8)
     
-    # --- SMART SCALING Y-AXIS ---
-    # Find the actual highest and lowest points of the data
     actual_max = np.max(y)
     actual_min = np.min(y)
-    
-    # Calculate the total height of the graph for dynamic padding
     y_range = actual_max - actual_min
-    if y_range == 0: y_range = 10 # Fallback
-    
-    # Add a 15% visual cushion above and below the data
+    if y_range == 0: y_range = 10 
     y_max = actual_max + (y_range * 0.15)
     y_min = actual_min - (y_range * 0.15)
     
-    # Guarantee the zero line is always clearly visible, even if the trade is 100% profit or 100% loss
-    if y_min >= 0: y_min = -y_max * 0.15
-    if y_max <= 0: y_max = -y_min * 0.15
+    if y_min >= 0: y_min = -y_max * 0.3
+    if y_max <= 0: y_max = -y_min * 0.3
 
     fig.update_layout(
-        title=f"<b>{title}</b>", 
-        template="plotly_dark", 
-        hovermode="x unified", 
-        height=500,
-        xaxis_title="Stock Price at Expiry ($)", 
-        yaxis_title="Profit / Loss ($)" if "Profit" in title else "Value ($)",
-        yaxis=dict(
-            zeroline=True, 
-            zerolinewidth=2, 
-            zerolinecolor='rgba(255,255,255,0.5)', 
-            range=[y_min, y_max] # Apply the smart dynamic range
-        ),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        title=f"<b>{title}</b>", template="plotly_dark", hovermode="x unified", height=550,
+        xaxis_title="Stock Price at Expiry ($)", yaxis_title=f"Profit / Loss ({currency_sym})" if "Profit" in title else f"Value ({currency_sym})",
+        yaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor='rgba(255,255,255,0.5)', range=[y_min, y_max]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=0, r=0, t=50, b=0)
     )
     return fig
 
-st.plotly_chart(create_fig(S, gross, "1. Payoff Diagram (Gross Value)", "Payoff"), use_container_width=True)
-st.plotly_chart(create_fig(S, profit, "2. Profit Diagram (Net Realized)", "Profit"), use_container_width=True)
+fig_gross = create_fig(S, gross, "Payoff Diagram (Gross Value)", "Payoff")
+fig_profit = create_fig(S, profit, "Profit Diagram (Net Realized)", "Profit")
 
+# ================= INJECTING UI INTO THE MAIN CONTAINER =================
+# Now that the math is done and figures are generated, we render them in the container at the TOP.
+with main_layout:
+    st.markdown("---")
+    # Split the layout: 1 part for metrics, 3 parts for the graph
+    left_col, right_col = st.columns([1, 2.5]) 
+    
+    # --- VERTICAL METRICS (LEFT SIDE) ---
+    # --- VERTICAL METRICS (LEFT SIDE) ---
+    with left_col:
+        st.markdown("### Strategy Metrics")
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        max_p = np.max(profit)
+        max_l = np.min(profit)
+        profit_defined = strategy not in ["Long Straddle", "Long Strangle", "Protective Put"]
+        risk_defined = strategy not in ["Short Straddle", "Short Strangle", "Covered Call"]
+
+        st.markdown('<p class="metric-label">Max Profit</p>', unsafe_allow_html=True)
+        # --- PASTE HAPPENED HERE ---
+        val = f"{currency_sym}{max_p:.2f}" if profit_defined else "Undefined"
+        st.markdown(f'<p class="metric-value">{val}</p><br>', unsafe_allow_html=True)
+
+        st.markdown('<p class="metric-label">Max Loss (Risk)</p>', unsafe_allow_html=True)
+        val = f"{currency_sym}{max_l:.2f}" if risk_defined else "Undefined"
+        st.markdown(f'<p class="metric-value">{val}</p><br>', unsafe_allow_html=True)
+
+        st.markdown('<p class="metric-label">Breakeven(s)</p>', unsafe_allow_html=True)
+        be_val = ", ".join([f"{currency_sym}{b}" for b in bes]) if bes else "None"
+        st.markdown(f'<p class="metric-value" style="font-size:24px;">{be_val}</p><br>', unsafe_allow_html=True)
+
+        st.markdown('<p class="metric-label">Net Premium</p>', unsafe_allow_html=True)
+        badge_text = "Debit" if is_debit else "Credit"
+        badge_class = "badge-debit" if is_debit else "badge-credit"
+        st.markdown(f'<p class="metric-value">{currency_sym}{abs(net_premium):.2f} <span class="{badge_class}" style="vertical-align: middle;">↑ {badge_text}</span></p><br>', unsafe_allow_html=True)
+        # --- END OF PASTE ---
+
+        st.markdown('<p class="metric-label">Risk : Reward</p>', unsafe_allow_html=True)
+        if profit_defined and risk_defined:
+            if max_l == 0:
+                rr_val = "Risk-Free"
+            else:
+                ratio = max_p / abs(max_l)
+                rr_val = f"1 : {ratio:.2f}"
+        else:
+            rr_val = "Undefined"
+        st.markdown(f'<p class="metric-value">{rr_val}</p>', unsafe_allow_html=True)
+
+    # --- TABBED GRAPHS (RIGHT SIDE) ---
+    with right_col:
+        # Create the Opstra-style tabs
+        tab1, tab2 = st.tabs(["📉 PAYOFF CHART", "📊 P&L"])
+        
+        with tab1:
+            st.plotly_chart(fig_gross, use_container_width=True)
+        with tab2:
+            st.plotly_chart(fig_profit, use_container_width=True)
