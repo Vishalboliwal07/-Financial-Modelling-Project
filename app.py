@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import yfinance as yf
+import requests
 import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Professional Options Analyzer")
@@ -92,7 +93,15 @@ else:
 
 # ================= DATA FETCHING =================
 if not use_manual:
-    ticker_obj = yf.Ticker(ticker_symbol)
+    # --- NEW ANTI-BLOCKING CODE ---
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    })
+    # Pass the session into yfinance
+    ticker_obj = yf.Ticker(ticker_symbol, session=session)
+    # ------------------------------
+
     with st.spinner("Fetching Market Data..."):
         hist = ticker_obj.history(period="1d")
         if hist.empty: st.stop()
