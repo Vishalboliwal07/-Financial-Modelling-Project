@@ -143,7 +143,8 @@ else:
     
     current_price = m_col1.number_input("Spot Price", value=100.0)
     k1 = m_col1.number_input("Strike K1", value=100.0)
-    
+
+    need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"]
     # Initialize defaults so the math engine further down doesn't crash
     cp1, pp1, k2, cp2, pp2 = 0.0, 0.0, None, 0.0, 0.0
     
