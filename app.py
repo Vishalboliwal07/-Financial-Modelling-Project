@@ -159,28 +159,6 @@ else:
     else: 
         k2, cp2, pp2 = None, 0.0, 0.0
 
-    
-    # Dynamically show only the inputs needed for the specific strategy
-    if strategy in ["Long Straddle", "Short Straddle"]:
-        cp1 = m_col2.number_input("Call Premium K1", value=5.0)
-        pp1 = m_col2.number_input("Put Premium K1", value=5.0)
-    elif strategy == "Covered Call":
-        cp1 = m_col2.number_input("Call Premium K1", value=5.0)
-    elif strategy == "Protective Put":
-        pp1 = m_col2.number_input("Put Premium K1", value=5.0)
-    elif strategy in ["Long Strangle", "Short Strangle"]:
-        pp1 = m_col2.number_input("Put Premium K1", value=5.0)
-        k2 = m_col1.number_input("Strike K2", value=110.0)
-        cp2 = m_col2.number_input("Call Premium K2", value=2.0)
-    elif strategy == "Bull Spread":
-        cp1 = m_col2.number_input("Call Premium K1", value=5.0)
-        k2 = m_col1.number_input("Strike K2", value=110.0)
-        cp2 = m_col2.number_input("Call Premium K2", value=2.0)
-    elif strategy == "Bear Spread":
-        pp1 = m_col2.number_input("Put Premium K1", value=5.0)
-        k2 = m_col1.number_input("Strike K2", value=110.0)
-        pp2 = m_col2.number_input("Put Premium K2", value=2.0)
-
 
 # ================= PREMIUM DETAILS SECTION =================
 
