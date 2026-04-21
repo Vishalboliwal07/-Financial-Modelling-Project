@@ -123,7 +123,10 @@ if not use_manual:
     k1 = st.selectbox("Strike K1", strikes, index=list(strikes).index(min(strikes, key=lambda x: abs(x - baseline_k))))
     
     need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"] 
-    k2 = st.selectbox("Strike K2", strikes, index=min(len(strikes)-1, list(strikes).index(k1)+1)) if need_k2 else None
+
+#k2 change
+    k2 = st.selectbox("Strike K2", strikes, key="independent_k2") if need_k2 else None
+
     
     cp1, pp1 = get_mid(calls, k1), get_mid(puts, k1)
     cp2, pp2 = (get_mid(calls, k2), get_mid(puts, k2)) if need_k2 else (0.0, 0.0)
