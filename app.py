@@ -143,10 +143,17 @@ else:
     
     current_price = m_col1.number_input("Spot Price", value=100.0)
     k1 = m_col1.number_input("Strike K1", value=100.0)
-
+    cp1 = m_col2.number_input("Call Premium K1", value=5.0)
+    pp1 = m_col1.number_input("Put Premium K1", value=5.0)
+    
     need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"]
-    # Initialize defaults so the math engine further down doesn't crash
-    cp1, pp1, k2, cp2, pp2 = 0.0, 0.0, None, 0.0, 0.0
+    
+    if need_k2:
+        k2 = m_col2.number_input("Strike K2", value=110.0)
+        cp2 = m_col2.number_input("Call Premium K2", value=2.0)
+        pp2 = m_col1.number_input("Put Premium K2", value=2.0)
+    else: 
+        k2, cp2, pp2 = None, 0.0, 0.0
     
     # Dynamically show only the inputs needed for the specific strategy
     if strategy in ["Long Straddle", "Short Straddle"]:
@@ -169,30 +176,18 @@ else:
         k2 = m_col1.number_input("Strike K2", value=110.0)
         pp2 = m_col2.number_input("Put Premium K2", value=2.0)
 
+
 # ================= PREMIUM DETAILS SECTION =================
-# ================= PREMIUM DETAILS SECTION =================
+
 st.markdown("### Premium Details")
+p_col1, p_col2, p_col3, p_col4 = st.columns(4)
 
-# Build a list of only the required metrics based on the strategy
-metrics_to_show = []
+p_col1.metric(f"Call Leg (K1: {k1:.1f})", f"{currency_sym}{cp1:.2f}")
+p_col2.metric(f"Put Leg (K1: {k1:.1f})", f"{currency_sym}{pp1:.2f}")
 
-if strategy in ["Long Straddle", "Short Straddle"]:
-    metrics_to_show.extend([(f"Call Leg (K1: {k1:.1f})", cp1), (f"Put Leg (K1: {k1:.1f})", pp1)])
-elif strategy in ["Long Strangle", "Short Strangle"]:
-    metrics_to_show.extend([(f"Put Leg (K1: {k1:.1f})", pp1), (f"Call Leg (K2: {k2:.1f})", cp2)])
-elif strategy == "Covered Call":
-    metrics_to_show.append((f"Call Leg (K1: {k1:.1f})", cp1))
-elif strategy == "Protective Put":
-    metrics_to_show.append((f"Put Leg (K1: {k1:.1f})", pp1))
-elif strategy == "Bull Spread":
-    metrics_to_show.extend([(f"Call Leg (K1: {k1:.1f})", cp1), (f"Call Leg (K2: {k2:.1f})", cp2)])
-elif strategy == "Bear Spread":
-    metrics_to_show.extend([(f"Put Leg (K1: {k1:.1f})", pp1), (f"Put Leg (K2: {k2:.1f})", pp2)])
-
-# Dynamically generate exactly the right number of columns
-p_cols = st.columns(len(metrics_to_show) if metrics_to_show else 1)
-for i, (label, val) in enumerate(metrics_to_show):
-    p_cols[i].metric(label, f"{currency_sym}{val:.2f}")
+if need_k2:
+    p_col3.metric(f"Call Leg (K2: {k2:.1f})", f"{currency_sym}{cp2:.2f}")
+    p_col4.metric(f"Put Leg (K2: {k2:.1f})", f"{currency_sym}{pp2:.2f}")
 
 main_layout = st.container()
 
