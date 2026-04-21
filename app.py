@@ -5,6 +5,9 @@ import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Professional Options Analyzer")
 
+if 'custom_legs' not in st.session_state:
+    st.session_state.custom_legs = []
+
 # ================= CUSTOM CSS STYLING =================
 st.markdown("""
     <style>
@@ -62,7 +65,7 @@ with col_left:
     else: ticker_symbol = st.text_input("Enter Manual Ticker Symbol", value="CUSTOM")
 
 with col_right:
-    strategies = ["Long Straddle", "Short Straddle", "Long Strangle", "Short Strangle", "Covered Call", "Protective Put", "Bull Spread", "Bear Spread"] #added long and short
+    strategies = ["Long Straddle", "Short Straddle", "Long Strangle", "Short Strangle", "Covered Call", "Protective Put", "Bull Spread", "Bear Spread", "Custom Strategy"] #added long and short
     strategy = st.selectbox("Strategy", strategies)
 
 st.markdown("---")
@@ -121,9 +124,7 @@ if not use_manual:
         hist = ticker_obj.history(period="1d")
         if hist.empty: st.stop()
         
-        # Multiply the fetched price immediately!
         current_price = hist["Close"].iloc[-1] * multiplier 
-        
         st.markdown(f'<div class="price-bar">Live Price for {ticker_symbol}: {currency_sym}{current_price:.2f}</div>', unsafe_allow_html=True)
         
         expiries = ticker_obj.options
@@ -141,83 +142,130 @@ if not use_manual:
         return (row['bid'].values[0] + row['ask'].values[0]) / 2 or row['lastPrice'].values[0]
 
     strikes = sorted(calls['strike'].values)
-    
-    # We multiply the baseline for k1 calculation so it matches current_price
     baseline_k = current_price / multiplier 
-    k1_index = list(strikes).index(min(strikes, key=lambda x: abs(x - baseline_k)))
-    k1 = st.selectbox("Strike K1", strikes, index=k1_index)
-    
-    need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"] 
 
-    if need_k2:
-        # Determine the target based on strategy
-        if strategy == "Bear Spread":
-            target_k2 = k1 - 5
-        else: # Bull Spread & Strangles
-            target_k2 = k1 + 5
+    if strategy == "Custom Strategy":
+        # --- LIVE CUSTOM BUILDER ---
+        st.markdown("### 🏗️ Live Custom Strategy Builder")
+        c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1, 1.2, 1.2, 1.2, 2])
+        c_action = c1.selectbox("Action", ["Buy", "Sell"], key="l_act")
+        c_qty = c2.number_input("Qty", value=1, min_value=1, step=1, key="l_qty")
+        c_type = c3.selectbox("Type", ["Call", "Put", "Stock"], key="l_type")
+        
+        if c_type == "Stock":
+            c_strike = c4.number_input("Strike (N/A)", value=0.0, disabled=True, key="l_strk_s")
+            default_price = current_price / multiplier
+        else:
+            default_strike_idx = list(strikes).index(min(strikes, key=lambda x: abs(x - baseline_k)))
+            c_strike = c4.selectbox("Strike", strikes, index=default_strike_idx, key="l_strk_o")
+            default_price = get_mid(calls, c_strike) if c_type == "Call" else get_mid(puts, c_strike)
             
-        # Find the closest available strike to the target
-        best_k2 = min(strikes, key=lambda x: abs(x - target_k2))
-        k2_index = list(strikes).index(best_k2)
+        c_price = c5.number_input("Price", value=float(default_price), key="l_prc")
+        
+        def add_live_leg():
+            st.session_state.custom_legs.append({
+                "action": st.session_state.l_act, "qty": st.session_state.l_qty, "type": st.session_state.l_type,
+                "strike": st.session_state.l_strk_o if st.session_state.l_type != "Stock" else 0,
+                "price": st.session_state.l_prc, "active": True
+            })
+            
+        c6.markdown("<br>", unsafe_allow_html=True)
+        c6.button("➕ ADD POSITION", on_click=add_live_leg, use_container_width=True)
+        
+        # Dummy variables to prevent crash later
+        k1, cp1, pp1, need_k2, k2, cp2, pp2 = baseline_k, 0, 0, False, None, 0, 0
 
-        # THE FIX: Tie the key to the Ticker and Strategy, NOT K1. 
-        # This initializes it perfectly once, but lets you change the difference freely afterward.
-        dynamic_key = f"live_k2_{ticker_symbol}_{strategy}"
-        k2 = st.selectbox("Strike K2", strikes, index=k2_index, key=dynamic_key)
     else:
-        k2 = None
+        # --- EXISTING LIVE LOGIC ---
+        k1_index = list(strikes).index(min(strikes, key=lambda x: abs(x - baseline_k)))
+        k1 = st.selectbox("Strike K1", strikes, index=k1_index)
+        need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"] 
+        if need_k2:
+            target_k2 = k1 - 5 if strategy == "Bear Spread" else k1 + 5
+            best_k2 = min(strikes, key=lambda x: abs(x - target_k2))
+            k2 = st.selectbox("Strike K2", strikes, index=list(strikes).index(best_k2), key=f"live_k2_{ticker_symbol}_{strategy}")
+        else: k2 = None
 
-    cp1, pp1 = get_mid(calls, k1), get_mid(puts, k1)
-    cp2, pp2 = (get_mid(calls, k2), get_mid(puts, k2)) if need_k2 else (0.0, 0.0)
-
-    # Apply the multiplier to all selected strikes and premiums
-    k1 *= multiplier
-    cp1 *= multiplier
-    pp1 *= multiplier
-    if need_k2:
-        k2 *= multiplier
-        cp2 *= multiplier
-        pp2 *= multiplier
-
+        cp1, pp1 = get_mid(calls, k1), get_mid(puts, k1)
+        cp2, pp2 = (get_mid(calls, k2), get_mid(puts, k2)) if need_k2 else (0.0, 0.0)
 
 else:
     st.markdown('<div class="price-bar">🛠️ Manual Entry Mode Active</div>', unsafe_allow_html=True)
-    m_col1, m_col2 = st.columns(2)
     
-    current_price = m_col1.number_input("Spot Price", value=100.0, key="m_spot")
-    k1 = m_col1.number_input("Strike K1", value=100.0, key="m_k1")
-    cp1 = m_col2.number_input("Call Premium K1", value=5.0, key="m_cp1")
-    pp1 = m_col1.number_input("Put Premium K1", value=5.0, key="m_pp1")
-    
-    need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"]
-    
-    if need_k2:
-        if strategy == "Bear Spread":
-            default_k2 = k1 - 5.0
-        else: # Bull Spread & Strangles
-            default_k2 = k1 + 5.0
-            
-        # THE FIX: Tie the key to the Strategy only.
-        dynamic_key_m = f"manual_k2_{strategy}"
-        k2 = m_col2.number_input("Strike K2", value=float(default_k2), key=dynamic_key_m)
+    if strategy == "Custom Strategy":
+        # --- MANUAL CUSTOM BUILDER ---
+        st.markdown("### 🏗️ Custom Strategy Builder")
+        c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1, 1.2, 1.2, 1.2, 2])
+        c_action = c1.selectbox("Action", ["Buy", "Sell"], key="m_act")
+        c_qty = c2.number_input("Qty", value=1, min_value=1, step=1, key="m_qty")
+        c_type = c3.selectbox("Type", ["Call", "Put", "Stock"], key="m_type")
+        c_strike = c4.number_input("Strike", value=100.0, disabled=(c_type == "Stock"), key="m_strk")
+        c_price = c5.number_input("Price", value=5.0, key="m_prc")
         
-        cp2 = m_col2.number_input("Call Premium K2", value=2.0, key="m_cp2")
-        pp2 = m_col1.number_input("Put Premium K2", value=2.0, key="m_pp2")
-    else: 
-        k2, cp2, pp2 = None, 0.0, 0.0
+        def add_manual_leg():
+            st.session_state.custom_legs.append({
+                "action": st.session_state.m_act, "qty": st.session_state.m_qty, "type": st.session_state.m_type,
+                "strike": st.session_state.m_strk if st.session_state.m_type != "Stock" else 0,
+                "price": st.session_state.m_prc, "active": True
+            })
+            
+        c6.markdown("<br>", unsafe_allow_html=True)
+        c6.button("➕ ADD POSITION", on_click=add_manual_leg, use_container_width=True)
+        
+        current_price = 100.0 # Default manual spot
+        k1, cp1, pp1, need_k2, k2, cp2, pp2 = 100, 0, 0, False, None, 0, 0
+
+    else:
+        # --- EXISTING MANUAL LOGIC ---
+        m_col1, m_col2 = st.columns(2)
+        current_price = m_col1.number_input("Spot Price", value=100.0, key="m_spot")
+        k1 = m_col1.number_input("Strike K1", value=100.0, key="m_k1")
+        cp1 = m_col2.number_input("Call Premium K1", value=5.0, key="m_cp1")
+        pp1 = m_col1.number_input("Put Premium K1", value=5.0, key="m_pp1")
+        
+        need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"]
+        if need_k2:
+            default_k2 = k1 - 5.0 if strategy == "Bear Spread" else k1 + 5.0
+            k2 = m_col2.number_input("Strike K2", value=float(default_k2), key=f"manual_k2_{strategy}")
+            cp2 = m_col2.number_input("Call Premium K2", value=2.0, key="m_cp2")
+            pp2 = m_col1.number_input("Put Premium K2", value=2.0, key="m_pp2")
+        else: k2, cp2, pp2 = None, 0.0, 0.0
+
+
+# --- RENDER STRATEGY POSITIONS LIST (Applies to both Live and Manual Custom) ---
+if strategy == "Custom Strategy":
+    st.markdown("<hr style='margin:10px 0px; opacity:0.3'>", unsafe_allow_html=True)
+    list_col1, list_col2 = st.columns([4, 1])
+    list_col1.markdown("#### Strategy Positions")
+    if list_col2.button("RESET LIST"):
+        st.session_state.custom_legs = []
+        st.rerun()
+
+    if len(st.session_state.custom_legs) == 0:
+        st.info("No positions added yet. Use the toolbar above to build your strategy.")
+    else:
+        for i, leg in enumerate(st.session_state.custom_legs):
+            chk_col, text_col = st.columns([0.5, 4.5])
+            leg['active'] = chk_col.checkbox("", value=leg['active'], key=f"chk_{i}")
+            color = "#48bb78" if leg['action'] == "Buy" else "#f56565"
+            qty_display = leg.get('qty', 1)
+            if leg['type'] == "Stock": desc = f"<span style='color:{color}; font-weight:bold;'>{leg['action']}</span> {qty_display}x STOCK @ {currency_sym}{leg['price']}"
+            else: desc = f"<span style='color:{color}; font-weight:bold;'>{leg['action']}</span> {qty_display}x {leg['strike']} {leg['type']} @ {currency_sym}{leg['price']}"
+            text_col.markdown(desc, unsafe_allow_html=True)
 
 
 # ================= PREMIUM DETAILS SECTION =================
 
-st.markdown("### Premium Details")
-p_col1, p_col2, p_col3, p_col4 = st.columns(4)
+if strategy != "Custom Strategy":
+    st.markdown("### Premium Details")
+    p_col1, p_col2, p_col3, p_col4 = st.columns(4)
 
-p_col1.metric(f"Call Leg (K1: {k1:.1f})", f"{currency_sym}{cp1:.2f}")
-p_col2.metric(f"Put Leg (K1: {k1:.1f})", f"{currency_sym}{pp1:.2f}")
+    p_col1.metric(f"Call Leg (K1: {k1:.1f})", f"{currency_sym}{cp1:.2f}")
+    p_col2.metric(f"Put Leg (K1: {k1:.1f})", f"{currency_sym}{pp1:.2f}")
 
-if need_k2:
-    p_col3.metric(f"Call Leg (K2: {k2:.1f})", f"{currency_sym}{cp2:.2f}")
-    p_col4.metric(f"Put Leg (K2: {k2:.1f})", f"{currency_sym}{pp2:.2f}")
+    if need_k2:
+        p_col3.metric(f"Call Leg (K2: {k2:.1f})", f"{currency_sym}{cp2:.2f}")
+        p_col4.metric(f"Put Leg (K2: {k2:.1f})", f"{currency_sym}{pp2:.2f}")
 
 main_layout = st.container()
 
@@ -298,6 +346,34 @@ elif strategy == "Bear Spread":
     p_temp = (p_pay(S_temp, k2) - p_pay(S_temp, k1)) - pp2 + pp1
     net_premium, is_debit = (pp2 - pp1), (pp2 > pp1)
 
+elif strategy == "Custom Strategy":
+    p_temp = np.zeros_like(S_temp) 
+    net_premium = 0.0
+    
+    for leg in st.session_state.custom_legs:
+        if leg.get('active', False):
+            qty = leg.get('qty', 1)
+            # Differentiate buy/sell impact
+            direction = qty if leg['action'] == "Buy" else -qty
+            
+            # Apply currency conversion to custom legs
+            leg_strike = leg['strike'] * multiplier
+            leg_price = leg['price'] * multiplier
+            
+            if leg['type'] == "Call":
+                leg_pnl = np.maximum(S_temp - leg_strike, 0) - leg_price
+            elif leg['type'] == "Put":
+                leg_pnl = np.maximum(leg_strike - S_temp, 0) - leg_price
+            elif leg['type'] == "Stock":
+                leg_pnl = S_temp - leg_price
+                
+            net_premium += -direction * leg_price
+            p_temp += direction * leg_pnl
+            
+    gross = p_temp - net_premium
+    profit = p_temp  
+    is_debit = net_premium < 0
+
 # Find Exact Breakevens
 bes = []
 for i in range(len(S_temp)-1):
@@ -332,6 +408,8 @@ elif strategy == "Bull Spread":
 elif strategy == "Bear Spread":
     gross = p_pay(S, k2) - p_pay(S, k1)
     profit = gross - net_premium
+elif strategy == "Custom Strategy":
+    pass # Already calculated above
 
 # ================= PLOTLY GRAPHS LOGIC =================
 def create_fig(x, y, title, label_name):
