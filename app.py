@@ -67,6 +67,30 @@ with col_right:
 
 st.markdown("---")
 
+# --- STRATEGY COMPOSITION INDICATOR ---
+# A dictionary explaining the physical makeup of every strategy
+strategy_composition = {
+    "Covered Call": "📈 1 Long Stock + 📉 1 Short Call",
+    "Protective Put": "📈 1 Long Stock + 📈 1 Long Put",
+    "Long Straddle": "📈 1 Long Call + 📈 1 Long Put (Same Strike)",
+    "Short Straddle": "📉 1 Short Call + 📉 1 Short Put (Same Strike)",
+    "Long Strangle": "📈 1 Long Call + 📈 1 Long Put (Different Strikes)",
+    "Short Strangle": "📉 1 Short Call + 📉 1 Short Put (Different Strikes)",
+    "Bull Spread": "📈 1 Long Call (Lower Strike) + 📉 1 Short Call (Higher Strike)",
+    "Bear Spread": "📈 1 Long Put (Higher Strike) + 📉 1 Short Put (Lower Strike)"
+}
+
+# Fetch the text for the currently selected strategy
+comp_text = strategy_composition.get(strategy, "Custom Configuration")
+
+# Render a sleek UI box for it
+st.markdown(f"""
+    <div style="padding: 12px; border-radius: 5px; background-color: rgba(255,255,255,0.05); border-left: 4px solid #63b3ed; margin-bottom: 15px;">
+        <span style="font-weight: bold; font-size: 16px; color: #e2e8f0;">{strategy}</span><br>
+        <span style="color: #a0aec0; font-size: 14px;">Structure: {comp_text}</span>
+    </div>
+""", unsafe_allow_html=True)
+
 # ================= DATA FETCHING =================
 st.markdown("---")
 
