@@ -144,14 +144,29 @@ if not use_manual:
     
     # We multiply the baseline for k1 calculation so it matches current_price
     baseline_k = current_price / multiplier 
-    k1 = st.selectbox("Strike K1", strikes, index=list(strikes).index(min(strikes, key=lambda x: abs(x - baseline_k))))
+    k1_index = list(strikes).index(min(strikes, key=lambda x: abs(x - baseline_k)))
+    k1 = st.selectbox("Strike K1", strikes, index=k1_index)
     
     need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"] 
 
-#k2 change
-    k2 = st.selectbox("Strike K2", strikes, key="independent_k2") if need_k2 else None
+    if need_k2:
+        # Determine the target based on strategy
+        if strategy == "Bear Spread":
+            target_k2 = k1 - 5
+        else: # Bull Spread & Strangles
+            target_k2 = k1 + 5
+            
+        # Find the closest available strike to the target
+        best_k2 = min(strikes, key=lambda x: abs(x - target_k2))
+        k2_index = list(strikes).index(best_k2)
 
-    
+        # THE FIX: Tie the key to the Ticker and Strategy, NOT K1. 
+        # This initializes it perfectly once, but lets you change the difference freely afterward.
+        dynamic_key = f"live_k2_{ticker_symbol}_{strategy}"
+        k2 = st.selectbox("Strike K2", strikes, index=k2_index, key=dynamic_key)
+    else:
+        k2 = None
+
     cp1, pp1 = get_mid(calls, k1), get_mid(puts, k1)
     cp2, pp2 = (get_mid(calls, k2), get_mid(puts, k2)) if need_k2 else (0.0, 0.0)
 
@@ -177,7 +192,15 @@ else:
     need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"]
     
     if need_k2:
-        k2 = m_col2.number_input("Strike K2", value=110.0, key="m_k2")
+        if strategy == "Bear Spread":
+            default_k2 = k1 - 5.0
+        else: # Bull Spread & Strangles
+            default_k2 = k1 + 5.0
+            
+        # THE FIX: Tie the key to the Strategy only.
+        dynamic_key_m = f"manual_k2_{strategy}"
+        k2 = m_col2.number_input("Strike K2", value=float(default_k2), key=dynamic_key_m)
+        
         cp2 = m_col2.number_input("Call Premium K2", value=2.0, key="m_cp2")
         pp2 = m_col1.number_input("Put Premium K2", value=2.0, key="m_pp2")
     else: 
