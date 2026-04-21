@@ -140,23 +140,25 @@ if not use_manual:
         cp2 *= multiplier
         pp2 *= multiplier
 
+
 else:
-    st.markdown(f'<div class="price-bar">🛠️ Manual Entry Mode Active</div>', unsafe_allow_html=True)
+    st.markdown('<div class="price-bar">🛠️ Manual Entry Mode Active</div>', unsafe_allow_html=True)
     m_col1, m_col2 = st.columns(2)
     
-    current_price = m_col1.number_input("Spot Price", value=100.0)
-    k1 = m_col1.number_input("Strike K1", value=100.0)
-    cp1 = m_col2.number_input("Call Premium K1", value=5.0)
-    pp1 = m_col1.number_input("Put Premium K1", value=5.0)
+    current_price = m_col1.number_input("Spot Price", value=100.0, key="m_spot")
+    k1 = m_col1.number_input("Strike K1", value=100.0, key="m_k1")
+    cp1 = m_col2.number_input("Call Premium K1", value=5.0, key="m_cp1")
+    pp1 = m_col1.number_input("Put Premium K1", value=5.0, key="m_pp1")
     
     need_k2 = strategy in ["Long Strangle", "Short Strangle", "Bull Spread", "Bear Spread"]
     
     if need_k2:
-        k2 = m_col2.number_input("Strike K2", value=110.0)
-        cp2 = m_col2.number_input("Call Premium K2", value=2.0)
-        pp2 = m_col1.number_input("Put Premium K2", value=2.0)
+        k2 = m_col2.number_input("Strike K2", value=110.0, key="m_k2")
+        cp2 = m_col2.number_input("Call Premium K2", value=2.0, key="m_cp2")
+        pp2 = m_col1.number_input("Put Premium K2", value=2.0, key="m_pp2")
     else: 
         k2, cp2, pp2 = None, 0.0, 0.0
+
     
     # Dynamically show only the inputs needed for the specific strategy
     if strategy in ["Long Straddle", "Short Straddle"]:
